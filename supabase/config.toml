@@ -2,3 +2,9 @@ project_id = "tlxsxfphmsirixtvhqua"
 
 [functions.mongodb]
 verify_jwt = false
+
+[functions.get-ndvi]
+verify_jwt = false
+
+[functions.get-ndvi-pakistan-range]
+verify_jwt = false
