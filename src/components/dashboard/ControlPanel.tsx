@@ -6,14 +6,7 @@ import {
   ChevronLeft,
   Calendar,
   MapPin,
-  Download,
   Loader2,
-  TrendingUp,
-  TrendingDown,
-  FileSpreadsheet,
-  Map,
-  FileJson,
-  Lightbulb,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -30,14 +23,22 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import {
-  environmentalParameters,
-  generateTimeSeriesData,
-  generateStatistics,
+  PARAMETERS,
+  ParameterType,
+  generateTimeSeries,
+  calculateStats,
   generateInsights,
 } from '@/lib/mockData';
 import { DrawnShape } from './LeafletMap';
 import { AnalysisResults } from './AnalysisResults';
 import { useToast } from '@/hooks/use-toast';
+
+const parameterList = Object.entries(PARAMETERS).map(([id, config]) => ({
+  id: id as ParameterType,
+  name: config.name,
+  unit: config.unit,
+  color: config.palette[Math.floor(config.palette.length / 2)],
+}));
 
 interface ControlPanelProps {
   isOpen: boolean;
@@ -47,7 +48,7 @@ interface ControlPanelProps {
 
 export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps) {
   const { toast } = useToast();
-  const [selectedParameter, setSelectedParameter] = useState('NDVI');
+  const [selectedParameter, setSelectedParameter] = useState<ParameterType>('NDVI');
   const [startDate, setStartDate] = useState<Date>(subDays(new Date(), 90));
   const [endDate, setEndDate] = useState<Date>(new Date());
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -69,11 +70,9 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
       hasValidArea = true;
     } else if (inputMode === 'coordinates' && coordLat && coordLng) {
       hasValidArea = true;
-      // Add marker via global method
       (window as any).leafletMapMethods?.addMarker(parseFloat(coordLat), parseFloat(coordLng));
     } else if (inputMode === 'bbox' && bboxNorth && bboxSouth && bboxEast && bboxWest) {
       hasValidArea = true;
-      // Add rectangle via global method
       const coords = [
         { lat: parseFloat(bboxNorth), lng: parseFloat(bboxWest) },
         { lat: parseFloat(bboxNorth), lng: parseFloat(bboxEast) },
@@ -97,15 +96,27 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    const timeSeries = generateTimeSeriesData(selectedParameter, startDate, endDate);
-    const stats = generateStatistics(selectedParameter);
+    const timeSeries = generateTimeSeries(selectedParameter, startDate, endDate);
+    const stats = calculateStats(timeSeries);
     const insights = generateInsights(selectedParameter, stats);
-    const param = environmentalParameters.find(p => p.id === selectedParameter);
+    const paramConfig = PARAMETERS[selectedParameter];
 
     setAnalysisResult({
-      parameter: param,
+      parameter: {
+        id: selectedParameter,
+        name: paramConfig.name,
+        fullName: paramConfig.name,
+        unit: paramConfig.unit,
+        color: paramConfig.palette[Math.floor(paramConfig.palette.length / 2)],
+      },
       timeSeries,
-      stats,
+      stats: {
+        mean: stats.mean,
+        min: stats.min,
+        max: stats.max,
+        stdDev: stats.stdDev,
+        trend: stats.trendPercent,
+      },
       insights,
       startDate: format(startDate, 'MMM d, yyyy'),
       endDate: format(endDate, 'MMM d, yyyy'),
@@ -114,7 +125,7 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
     setIsAnalyzing(false);
     toast({
       title: 'Analysis complete',
-      description: `${param?.fullName} data retrieved successfully.`,
+      description: `${paramConfig.name} data retrieved successfully.`,
     });
   };
 
@@ -134,11 +145,7 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
         type: 'FeatureCollection',
         features: [{
           type: 'Feature',
-          properties: {
-            parameter: parameter.id,
-            stats,
-            timeSeries,
-          },
+          properties: { parameter: parameter.id, stats, timeSeries },
           geometry: drawnShape?.geoJSON?.geometry || { type: 'Point', coordinates: [0, 0] },
         }],
       };
@@ -153,10 +160,7 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
       return;
     }
 
-    toast({
-      title: 'Export successful',
-      description: `Data exported as ${formatId.toUpperCase()}.`,
-    });
+    toast({ title: 'Export successful', description: `Data exported as ${formatId.toUpperCase()}.` });
   };
 
   const downloadFile = (content: string, filename: string, mimeType: string) => {
@@ -173,7 +177,6 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
 
   return (
     <>
-      {/* Toggle button */}
       <button
         onClick={onToggle}
         className={cn(
@@ -184,7 +187,6 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
         {isOpen ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
       </button>
 
-      {/* Panel */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -203,19 +205,16 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
               {/* Parameter Selection */}
               <div className="space-y-2">
                 <Label>Environmental Parameter</Label>
-                <Select value={selectedParameter} onValueChange={setSelectedParameter}>
+                <Select value={selectedParameter} onValueChange={(v) => setSelectedParameter(v as ParameterType)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-popover">
-                    {environmentalParameters.map(param => (
+                    {parameterList.map(param => (
                       <SelectItem key={param.id} value={param.id}>
                         <div className="flex items-center gap-2">
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: param.color }}
-                          />
-                          <span>{param.name}</span>
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: param.color }} />
+                          <span>{param.id}</span>
                           <span className="text-muted-foreground text-xs">({param.unit})</span>
                         </div>
                       </SelectItem>
@@ -238,12 +237,8 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
                     <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
                       <MapPin className="w-5 h-5 text-primary" />
                       <div>
-                        <p className="text-sm font-medium">
-                          {drawnShape ? `${drawnShape.type} selected` : 'Draw on map'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Use the drawing tools on the map
-                        </p>
+                        <p className="text-sm font-medium">{drawnShape ? `${drawnShape.type} selected` : 'Draw on map'}</p>
+                        <p className="text-xs text-muted-foreground">Use the drawing tools on the map</p>
                       </div>
                     </div>
                   </TabsContent>
@@ -252,69 +247,21 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Latitude</Label>
-                        <Input
-                          type="number"
-                          step="any"
-                          placeholder="e.g., 40.7128"
-                          value={coordLat}
-                          onChange={(e) => setCoordLat(e.target.value)}
-                        />
+                        <Input type="number" step="any" placeholder="e.g., 40.7128" value={coordLat} onChange={(e) => setCoordLat(e.target.value)} />
                       </div>
                       <div>
                         <Label className="text-xs">Longitude</Label>
-                        <Input
-                          type="number"
-                          step="any"
-                          placeholder="e.g., -74.0060"
-                          value={coordLng}
-                          onChange={(e) => setCoordLng(e.target.value)}
-                        />
+                        <Input type="number" step="any" placeholder="e.g., -74.0060" value={coordLng} onChange={(e) => setCoordLng(e.target.value)} />
                       </div>
                     </div>
                   </TabsContent>
 
                   <TabsContent value="bbox" className="mt-3 space-y-3">
                     <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label className="text-xs">North</Label>
-                        <Input
-                          type="number"
-                          step="any"
-                          placeholder="Max Lat"
-                          value={bboxNorth}
-                          onChange={(e) => setBboxNorth(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">South</Label>
-                        <Input
-                          type="number"
-                          step="any"
-                          placeholder="Min Lat"
-                          value={bboxSouth}
-                          onChange={(e) => setBboxSouth(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">East</Label>
-                        <Input
-                          type="number"
-                          step="any"
-                          placeholder="Max Lng"
-                          value={bboxEast}
-                          onChange={(e) => setBboxEast(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">West</Label>
-                        <Input
-                          type="number"
-                          step="any"
-                          placeholder="Min Lng"
-                          value={bboxWest}
-                          onChange={(e) => setBboxWest(e.target.value)}
-                        />
-                      </div>
+                      <div><Label className="text-xs">North</Label><Input type="number" step="any" placeholder="Max Lat" value={bboxNorth} onChange={(e) => setBboxNorth(e.target.value)} /></div>
+                      <div><Label className="text-xs">South</Label><Input type="number" step="any" placeholder="Min Lat" value={bboxSouth} onChange={(e) => setBboxSouth(e.target.value)} /></div>
+                      <div><Label className="text-xs">East</Label><Input type="number" step="any" placeholder="Max Lng" value={bboxEast} onChange={(e) => setBboxEast(e.target.value)} /></div>
+                      <div><Label className="text-xs">West</Label><Input type="number" step="any" placeholder="Min Lng" value={bboxWest} onChange={(e) => setBboxWest(e.target.value)} /></div>
                     </div>
                   </TabsContent>
                 </Tabs>
@@ -332,13 +279,7 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 bg-popover" align="start">
-                      <CalendarComponent
-                        mode="single"
-                        selected={startDate}
-                        onSelect={(d) => d && setStartDate(d)}
-                        initialFocus
-                        className="pointer-events-auto"
-                      />
+                      <CalendarComponent mode="single" selected={startDate} onSelect={(d) => d && setStartDate(d)} initialFocus className="pointer-events-auto" />
                     </PopoverContent>
                   </Popover>
                   <Popover>
@@ -349,38 +290,19 @@ export function ControlPanel({ isOpen, onToggle, drawnShape }: ControlPanelProps
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0 bg-popover" align="start">
-                      <CalendarComponent
-                        mode="single"
-                        selected={endDate}
-                        onSelect={(d) => d && setEndDate(d)}
-                        initialFocus
-                        className="pointer-events-auto"
-                      />
+                      <CalendarComponent mode="single" selected={endDate} onSelect={(d) => d && setEndDate(d)} initialFocus className="pointer-events-auto" />
                     </PopoverContent>
                   </Popover>
                 </div>
               </div>
 
               {/* Analyze Button */}
-              <Button
-                onClick={handleAnalyze}
-                disabled={isAnalyzing}
-                className="w-full h-12 bg-gradient-to-r from-primary to-accent hover:opacity-90"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    Analyzing...
-                  </>
-                ) : (
-                  'Analyze Area'
-                )}
+              <Button onClick={handleAnalyze} disabled={isAnalyzing} className="w-full h-12 bg-gradient-to-r from-primary to-accent hover:opacity-90">
+                {isAnalyzing ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" />Analyzing...</> : 'Analyze Area'}
               </Button>
 
               {/* Results */}
-              {analysisResult && (
-                <AnalysisResults result={analysisResult} onExport={handleExport} />
-              )}
+              {analysisResult && <AnalysisResults result={analysisResult} onExport={handleExport} />}
             </div>
           </motion.div>
         )}
