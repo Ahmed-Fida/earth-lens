@@ -30,10 +30,19 @@ export function LeafletMap({ onShapeDrawn }: LeafletMapProps) {
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
+    // Pakistan boundaries
+    const pakistanBounds = L.latLngBounds(
+      L.latLng(23.5, 60.9),  // Southwest corner
+      L.latLng(37.1, 77.5)   // Northeast corner
+    );
+
     const map = L.map(mapContainer.current, {
-      center: [20, 0],
-      zoom: 3,
+      center: [30.3753, 69.3451], // Center of Pakistan
+      zoom: 5,
       zoomControl: false,
+      maxBounds: pakistanBounds,
+      maxBoundsViscosity: 1.0,
+      minZoom: 5,
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
@@ -41,6 +50,9 @@ export function LeafletMap({ onShapeDrawn }: LeafletMapProps) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map);
+
+    // Fit to Pakistan bounds initially
+    map.fitBounds(pakistanBounds, { padding: [20, 20] });
 
     const drawnItems = new L.FeatureGroup();
     map.addLayer(drawnItems);
